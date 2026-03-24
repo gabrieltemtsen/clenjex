@@ -1,0 +1,8 @@
+.env
+.env.*
+node_modules
+packages/onchain/lib
+packages/onchain/out
+packages/onchain/cache
+packages/onchain/broadcast
+.git
