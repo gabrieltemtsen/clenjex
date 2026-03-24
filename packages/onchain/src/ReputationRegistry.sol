@@ -60,7 +60,7 @@ contract ReputationRegistry {
         feedbackCount[agentId]++;
 
         // Update running summary (weighted average would be better in production,
-        // but spec uses most-recent for simplicity in hackathon)
+        // but using most-recent keeps the registry lightweight)
         summaryValue[agentId] = value;
         summaryValueDecimals[agentId] = valueDecimals;
 
