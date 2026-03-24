@@ -3,7 +3,10 @@
   "private": true,
   "version": "0.0.1",
   "type": "module",
-  "exports": { ".": "./src/types.ts" },
+  "exports": {
+    ".": "./src/types.ts",
+    "./db": "./src/db.ts"
+  },
   "scripts": {
     "dev": "echo 'shared has no dev server'",
     "build": "echo 'shared has no build step'",
@@ -11,6 +14,8 @@
     "lint": "echo ok"
   },
   "devDependencies": {
+    "@types/pg": "^8.20.0",
+    "pg": "^8.20.0",
     "typescript": "^5.8.2"
   }
 }

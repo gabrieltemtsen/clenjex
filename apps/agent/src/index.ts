@@ -32,20 +32,33 @@ const Env = z.object({
   TRADE_INTERVAL_MS: z.string().default("300000"),
   LOG_LEVEL: z.string().default("info"),
   KRAKEN_BIN: z.string().default("kraken"),
+
+  // DB
+  DATABASE_URL: z.string().optional(),
+
+  // Tuning
+  MIN_CONFIDENCE: z.string().optional(),
+  POSITION_SIZE_USD: z.string().optional(),
+  CANDLE_INTERVAL_MINUTES: z.string().optional(),
 });
 
 // Kraken canonical pair names (use kraken pairs command to verify)
 const PAIRS = ["XXBTZUSD", "XETHZUSD", "SOLUSD"];
-const INTERVAL_MINUTES = 60;
+const DEFAULT_INTERVAL_MINUTES = 60;
+
+import { createPool, ensureSchema, insertDecision, insertTrade, upsertPairState } from "../../../packages/shared/src/db.js";
 
 async function runCycle(
   env: z.infer<typeof Env>,
-  risk: RiskConfig
+  risk: RiskConfig,
+  deps: { pool?: ReturnType<typeof createPool> }
 ) {
   console.log(`\n[${new Date().toISOString()}] ── Starting trade cycle ──`);
 
   // 1. Connect to Kraken CLI MCP
   console.log("[agent] Connecting to Kraken CLI MCP server...");
+  const intervalMinutes = Number(env.CANDLE_INTERVAL_MINUTES ?? DEFAULT_INTERVAL_MINUTES);
+
   const kraken = await createKrakenMCPClient({
     apiKey: env.KRAKEN_API_KEY,
     apiSecret: env.KRAKEN_API_SECRET,
@@ -60,13 +73,26 @@ async function runCycle(
       console.log(`\n[agent] Processing ${pair}...`);
 
       // 2. Fetch market data
-      const candles = await kraken.getOHLCV(pair, INTERVAL_MINUTES, 100);
+      const candles = await kraken.getOHLCV(pair, intervalMinutes, 100);
       const latestPrice = candles[candles.length - 1].close;
       console.log(`[agent] ${pair} price: $${latestPrice.toFixed(2)} | candles: ${candles.length}`);
 
       // 3. Compute technical signals
       const signal = computeSignal(candles, pair);
       console.log(`[agent] Signal: ${signal.side} (${signal.confidence}%) | ${signal.reasoning}`);
+
+      // Always upsert latest state
+      if (deps.pool) {
+        await upsertPairState(deps.pool, {
+          pair,
+          price: latestPrice,
+          signal_side: signal.side,
+          signal_confidence: signal.confidence,
+          signal_reasoning: signal.reasoning,
+          last_run_at: new Date(),
+          last_error: null,
+        });
+      }
 
       // 4. Risk gate: skip if confidence too low
       if (signal.side === "hold" || signal.confidence < risk.minConfidence) {
@@ -84,6 +110,19 @@ async function runCycle(
         reasoning = decision.reasoning;
         console.log(`[agent] Gemini decision: ${action} (${decision.confidence}%) — ${reasoning}`);
 
+        if (action !== "hold" && deps.pool) {
+          await insertDecision(deps.pool, {
+            pair,
+            action,
+            confidence: decision.confidence,
+            amount_pct: decision.amount_pct,
+            stop_loss_pct: decision.stop_loss_pct,
+            take_profit_pct: decision.take_profit_pct,
+            reasoning: decision.reasoning,
+            raw: decision,
+          });
+        }
+
         if (action === "hold") {
           console.log(`[agent] Gemini says hold — skipping`);
           continue;
@@ -91,7 +130,7 @@ async function runCycle(
       }
 
       const isPaper = env.PAPER_TRADING === "true";
-      const positionUsd = risk.maxPositionSizeUsd;
+      const positionUsd = Number(env.POSITION_SIZE_USD ?? risk.maxPositionSizeUsd);
       const amount = (positionUsd / latestPrice).toFixed(8);
 
       // 6. Lane A: Kraken execution
@@ -101,6 +140,17 @@ async function runCycle(
           ? await kraken.paperBuy(pair, amount)
           : await kraken.paperSell(pair, amount);
         console.log(`[agent] ✅ Paper trade executed:`, JSON.stringify(result).slice(0, 120));
+
+        if (deps.pool) {
+          await insertTrade(deps.pool, {
+            pair,
+            side: action,
+            amount,
+            price: latestPrice,
+            lane: "kraken",
+            status: "paper",
+          });
+        }
       }
 
       // 7. Lane B: ERC-8004 DeFi — build + sign TradeIntent
@@ -114,7 +164,15 @@ async function runCycle(
 
       console.log(`[agent] ✓ Cycle complete for ${pair}`);
     } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
       console.error(`[agent] Error processing ${pair}:`, err);
+      if (deps.pool) {
+        await upsertPairState(deps.pool, {
+          pair,
+          last_run_at: new Date(),
+          last_error: msg,
+        });
+      }
     }
   }
 
@@ -125,6 +183,13 @@ async function main() {
   const env = Env.parse(process.env);
   const risk: RiskConfig = DEFAULT_RISK_CONFIG;
   risk.pairs = PAIRS;
+  if (env.MIN_CONFIDENCE) risk.minConfidence = Number(env.MIN_CONFIDENCE);
+
+  const pool = env.DATABASE_URL ? createPool(env.DATABASE_URL) : undefined;
+  if (pool) {
+    await ensureSchema(pool);
+    console.log("[agent] DB connected + schema ensured");
+  }
 
   console.log("╔══════════════════════════════════════╗");
   console.log("║           clenjex agent  ⚡          ║");
@@ -140,13 +205,13 @@ async function main() {
   console.log("");
 
   // Run first cycle immediately, then on interval
-  await runCycle(env, risk);
+  await runCycle(env, risk, { pool });
 
   const intervalMs = Number(env.TRADE_INTERVAL_MS);
   console.log(`\n[agent] Next cycle in ${intervalMs / 60000} minutes...`);
 
   setInterval(async () => {
-    await runCycle(env, risk).catch(console.error);
+    await runCycle(env, risk, { pool }).catch(console.error);
   }, intervalMs);
 }
 
