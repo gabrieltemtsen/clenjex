@@ -1,12 +1,14 @@
 {
   "base_sepolia": {
     "chainId": 84532,
-    "AgentIdentityRegistry": null,
-    "ReputationRegistry": null,
-    "ValidationRegistry": null,
-    "RiskRouter": null,
-    "Safe": null,
-    "deployedAt": null,
+    "AgentIdentityRegistry": "0xF112ba99A3586Ac4b5dA4148c0a03ADD2C6BFA0a",
+    "ReputationRegistry": "0x1148120c28a9597Efe77BaaE01989129406966A0",
+    "ValidationRegistry": "0xfc8Ed811Cf99F68cda81D99142def5E85c264fA3",
+    "RiskRouter": "0xeFCF8927961aCd0A157d84eba539D0E9B0849127",
+    "Safe": "0x0C5044AA4f0786f3A598F15CedC2ad79ee514580",
+    "AgentNFTId": 0,
+    "deployerEOA": "0x7231D8CCF0bcF5678dB30730EfE18F21d520C379",
+    "deployedAt": "2026-03-24",
     "blockExplorer": "https://sepolia.basescan.org"
   },
   "base": {
@@ -16,6 +18,7 @@
     "ValidationRegistry": null,
     "RiskRouter": null,
     "Safe": null,
+    "AgentNFTId": null,
     "deployedAt": null,
     "blockExplorer": "https://basescan.org"
   }

@@ -1,0 +1,44 @@
+{
+  "type": "https://eips.ethereum.org/EIPS/eip-8004#registration-v1",
+  "name": "clenjex",
+  "description": "Autonomous AI trading agent. Executes trades via Kraken CLI MCP server (off-chain) and submits EIP-712 signed TradeIntents to an on-chain Risk Router (ERC-8004 DeFi track). Signals: EMA crossover + RSI + volume z-score, decided by Gemini 2.5 Flash.",
+  "image": "https://avatars.githubusercontent.com/u/gabrieltemtsen",
+  "endpoints": [
+    {
+      "name": "MCP",
+      "endpoint": "https://clenjex.railway.app/mcp",
+      "version": "2025-06-18"
+    },
+    {
+      "name": "A2A",
+      "endpoint": "https://clenjex.railway.app/.well-known/agent-card.json",
+      "version": "0.3.0"
+    }
+  ],
+  "agentWallet": "0x0C5044AA4f0786f3A598F15CedC2ad79ee514580",
+  "supportedTrust": ["reputation", "crypto-economic"],
+  "capabilities": {
+    "trading": {
+      "pairs": ["BTC/USD", "ETH/USD", "SOL/USD", "XRP/USD"],
+      "lanes": ["kraken-cli-mcp", "erc8004-risk-router"],
+      "riskEngine": true,
+      "paperTrading": true,
+      "liveTrading": true
+    },
+    "onchain": {
+      "chain": "base-sepolia",
+      "chainId": 84532,
+      "contracts": {
+        "identityRegistry": "0xF112ba99A3586Ac4b5dA4148c0a03ADD2C6BFA0a",
+        "reputationRegistry": "0x1148120c28a9597Efe77BaaE01989129406966A0",
+        "validationRegistry": "0xfc8Ed811Cf99F68cda81D99142def5E85c264fA3",
+        "riskRouter": "0xeFCF8927961aCd0A157d84eba539D0E9B0849127"
+      }
+    }
+  },
+  "hackathon": {
+    "tracks": ["kraken-cli", "erc8004-defi-surge"],
+    "social": "https://twitter.com/gabe_temtsen",
+    "github": "https://github.com/gabrieltemtsen/clenjex"
+  }
+}
