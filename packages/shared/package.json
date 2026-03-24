@@ -1,0 +1,16 @@
+{
+  "name": "@clenjex/shared",
+  "private": true,
+  "version": "0.0.1",
+  "type": "module",
+  "exports": { ".": "./src/types.ts" },
+  "scripts": {
+    "dev": "echo 'shared has no dev server'",
+    "build": "echo 'shared has no build step'",
+    "typecheck": "tsc --noEmit",
+    "lint": "echo ok"
+  },
+  "devDependencies": {
+    "typescript": "^5.8.2"
+  }
+}

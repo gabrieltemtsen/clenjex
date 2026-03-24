@@ -1,0 +1,22 @@
+{
+  "base_sepolia": {
+    "chainId": 84532,
+    "AgentIdentityRegistry": null,
+    "ReputationRegistry": null,
+    "ValidationRegistry": null,
+    "RiskRouter": null,
+    "Safe": null,
+    "deployedAt": null,
+    "blockExplorer": "https://sepolia.basescan.org"
+  },
+  "base": {
+    "chainId": 8453,
+    "AgentIdentityRegistry": null,
+    "ReputationRegistry": null,
+    "ValidationRegistry": null,
+    "RiskRouter": null,
+    "Safe": null,
+    "deployedAt": null,
+    "blockExplorer": "https://basescan.org"
+  }
+}

@@ -5,3 +5,6 @@ dist
 .env.*
 .DS_Store
 pnpm-debug.log*
+packages/onchain/lib/
+packages/onchain/out/
+packages/onchain/cache/
