@@ -1,7 +1,7 @@
 {
   "type": "https://eips.ethereum.org/EIPS/eip-8004#registration-v1",
   "name": "clenjex",
-  "description": "Autonomous AI trading agent. Executes trades via Kraken CLI MCP server (off-chain) and submits EIP-712 signed TradeIntents to an on-chain Risk Router (ERC-8004 DeFi track). Signals: EMA crossover + RSI + volume z-score, decided by Gemini 2.5 Flash.",
+  "description": "Autonomous AI trading agent. Executes trades via Kraken CLI MCP server (off-chain) and can submit EIP-712 signed TradeIntents to an on-chain Risk Router. Signals: EMA crossover + RSI + volume z-score, decided by Gemini.",
   "image": "https://avatars.githubusercontent.com/u/gabrieltemtsen",
   "endpoints": [
     {
@@ -36,8 +36,7 @@
       }
     }
   },
-  "hackathon": {
-    "tracks": ["kraken-cli", "erc8004-defi-surge"],
+  "links": {
     "social": "https://twitter.com/gabe_temtsen",
     "github": "https://github.com/gabrieltemtsen/clenjex"
   }
