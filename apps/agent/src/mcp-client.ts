@@ -59,18 +59,31 @@ export async function createKrakenMCPClient(opts: {
         arguments: { pair, interval: intervalMinutes },
       });
       const text = (result.content as Array<{ text: string }>)[0]?.text ?? "{}";
-      const raw = JSON.parse(text);
-      // Kraken OHLC: response has one key with candle array + "last" key
-      // Find the first key that maps to an array
-      const key = Object.keys(raw).find(k => Array.isArray(raw[k])) ?? Object.keys(raw)[0];
-      const candles: [number, string, string, string, string, string, string, number][] = raw[key];
+
+      // Parse outer JSON
+      let raw: Record<string, unknown> = JSON.parse(text);
+
+      // Handle double-encoded case: {"XXBTZUSD": "[...]"} (Mac MCP returns string)
+      for (const k of Object.keys(raw)) {
+        if (typeof raw[k] === "string") {
+          try { raw[k] = JSON.parse(raw[k] as string); } catch { /* keep as-is */ }
+        }
+      }
+
+      // Find the key whose value is an array of candles
+      const key = Object.keys(raw).find(k => Array.isArray(raw[k]));
+      if (!key) {
+        throw new Error(`Unexpected OHLCV format for ${pair}: ${JSON.stringify(raw).slice(0, 200)}`);
+      }
+
+      const candles = raw[key] as [number, string, string, string, string, string, string, number][];
       return candles.slice(-count).map(([time, open, high, low, close, , volume]) => ({
         timestamp: Number(time) * 1000,
-        open: parseFloat(open),
-        high: parseFloat(high),
-        low: parseFloat(low),
-        close: parseFloat(close),
-        volume: parseFloat(volume),
+        open: parseFloat(String(open)),
+        high: parseFloat(String(high)),
+        low: parseFloat(String(low)),
+        close: parseFloat(String(close)),
+        volume: parseFloat(String(volume)),
       }));
     },
 
