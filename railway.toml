@@ -1,0 +1,22 @@
+[build]
+builder = "DOCKERFILE"
+
+[[services]]
+name = "clenjex-agent"
+source = "apps/agent"
+dockerfilePath = "apps/agent/Dockerfile"
+buildContext = "."
+
+[services.deploy]
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 3
+
+[[services]]
+name = "clenjex-dashboard"
+source = "apps/dashboard"
+dockerfilePath = "apps/dashboard/Dockerfile"
+buildContext = "."
+
+[services.deploy]
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 3
