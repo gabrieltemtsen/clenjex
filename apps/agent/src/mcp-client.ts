@@ -70,6 +70,11 @@ export async function createKrakenMCPClient(opts: {
         }
       }
 
+      // Check for API/network errors returned by the MCP tool
+      if (raw.error) {
+        throw new Error(`Kraken API error for ${pair}: ${raw.message ?? raw.error}`);
+      }
+
       // Find the key whose value is an array of candles
       const key = Object.keys(raw).find(k => Array.isArray(raw[k]));
       if (!key) {
