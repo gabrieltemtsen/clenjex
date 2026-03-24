@@ -1,118 +1,199 @@
+"use client";
+
+import { useEffect, useMemo, useState } from "react";
+
+type PairState = {
+  pair: string;
+  price: string | null;
+  signal_side: string | null;
+  signal_confidence: number | null;
+  signal_reasoning: string | null;
+  last_run_at: string | null;
+  last_error: string | null;
+  updated_at: string;
+};
+
+type TradeRow = {
+  id: number;
+  created_at: string;
+  pair: string;
+  side: string;
+  amount: string | null;
+  price: string | null;
+  lane: string;
+  status: string;
+};
+
 export default function Home() {
+  const [state, setState] = useState<PairState[]>([]);
+  const [trades, setTrades] = useState<TradeRow[]>([]);
+  const [err, setErr] = useState<string | null>(null);
+
+  async function refresh() {
+    try {
+      setErr(null);
+      const [s, t] = await Promise.all([
+        fetch("/api/state").then((r) => r.json()),
+        fetch("/api/trades?limit=100").then((r) => r.json()),
+      ]);
+      setState(s.rows ?? []);
+      setTrades(t.rows ?? []);
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e));
+    }
+  }
+
+  useEffect(() => {
+    refresh();
+    const id = setInterval(refresh, 8000);
+    return () => clearInterval(id);
+  }, []);
+
+  const totals = useMemo(() => {
+    return {
+      trades: trades.length,
+      lastTradeAt: trades[0]?.created_at ?? null,
+    };
+  }, [trades]);
+
   return (
     <main className="min-h-screen bg-gray-950 text-white p-8">
       <div className="max-w-6xl mx-auto">
-
-        {/* Header */}
         <div className="flex items-center justify-between mb-8">
           <div>
             <h1 className="text-3xl font-bold text-blue-400">clenjex</h1>
-            <p className="text-gray-400 text-sm mt-1">
-              Autonomous AI Trading Agent — Kraken CLI + ERC-8004 on Base Sepolia
-            </p>
+            <p className="text-gray-400 text-sm mt-1">Autonomous trading agent</p>
           </div>
-          <div className="flex gap-2 items-center">
-            <span className="w-2 h-2 rounded-full bg-yellow-400 animate-pulse" />
-            <span className="text-yellow-400 text-sm font-medium">PAPER TRADING</span>
+          <div className="flex gap-3 items-center">
+            <button
+              className="text-sm bg-gray-900 border border-gray-800 px-3 py-2 rounded-lg hover:bg-gray-800"
+              onClick={refresh}
+            >
+              Refresh
+            </button>
           </div>
         </div>
 
-        {/* Stats row */}
+        {err ? (
+          <div className="mb-6 bg-red-950/40 border border-red-900 text-red-200 rounded-xl p-4">
+            Dashboard error: {err}
+          </div>
+        ) : null}
+
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
-          {[
-            { label: "Total PnL", value: "$0.00", sub: "+0.00%", color: "text-gray-300" },
-            { label: "Total Trades", value: "0", sub: "0 open positions", color: "text-gray-300" },
-            { label: "Reputation Score", value: "—", sub: "ERC-8004 on-chain", color: "text-blue-400" },
-            { label: "Max Drawdown", value: "0%", sub: "Risk engine active", color: "text-green-400" },
-          ].map((stat) => (
-            <div key={stat.label} className="bg-gray-900 rounded-xl p-4 border border-gray-800">
-              <p className="text-gray-400 text-xs uppercase tracking-wide">{stat.label}</p>
-              <p className={`text-2xl font-bold mt-1 ${stat.color}`}>{stat.value}</p>
-              <p className="text-gray-500 text-xs mt-1">{stat.sub}</p>
-            </div>
-          ))}
+          <Stat label="Trades (recent)" value={String(totals.trades)} sub="last 100" />
+          <Stat label="Last trade" value={totals.lastTradeAt ? new Date(totals.lastTradeAt).toLocaleString() : "—"} sub="" />
+          <Stat label="Pairs tracked" value={String(state.length)} sub="" />
+          <Stat label="DB" value={"connected"} sub={"DATABASE_URL"} />
         </div>
 
-        {/* Two lane status */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-8">
-          {/* Kraken Lane */}
-          <div className="bg-gray-900 rounded-xl p-6 border border-gray-800">
-            <div className="flex items-center gap-2 mb-3">
-              <span className="text-xl">⚡</span>
-              <h2 className="text-lg font-semibold text-blue-400">Kraken Lane</h2>
-              <span className="ml-auto text-xs text-gray-500 bg-gray-800 px-2 py-1 rounded">MCP</span>
-            </div>
-            <p className="text-gray-400 text-sm">Kraken CLI MCP server → autonomous order execution</p>
-            <div className="mt-4 space-y-2 text-xs text-gray-500">
-              <div>🔌 MCP connection: <span className="text-yellow-400">pending</span></div>
-              <div>📊 Pairs: BTC/USD, ETH/USD, SOL/USD</div>
-              <div>🤖 Signal: EMA + RSI + Volume (Gemini 2.5 Flash)</div>
-            </div>
-          </div>
-
-          {/* DeFi Lane */}
-          <div className="bg-gray-900 rounded-xl p-6 border border-gray-800">
-            <div className="flex items-center gap-2 mb-3">
-              <span className="text-xl">🔗</span>
-              <h2 className="text-lg font-semibold text-purple-400">DeFi Lane (ERC-8004)</h2>
-              <span className="ml-auto text-xs text-gray-500 bg-gray-800 px-2 py-1 rounded">Base Sepolia</span>
-            </div>
-            <p className="text-gray-400 text-sm">EIP-712 TradeIntents → Safe (EIP-1271) → Risk Router</p>
-            <div className="mt-4 space-y-2 text-xs text-gray-500">
-              <div>🪪 Agent NFT: <span className="text-yellow-400">not registered yet</span></div>
-              <div>🔐 Safe wallet: <span className="text-yellow-400">deploying...</span></div>
-              <div>📡 Risk Router: <span className="text-yellow-400">awaiting deployment</span></div>
-            </div>
-          </div>
+          <Card title="Kraken lane" subtitle="Market data + execution via Kraken CLI MCP">
+            <div className="text-xs text-gray-400">Live. See per-pair state below.</div>
+          </Card>
+          <Card title="On-chain lane" subtitle="Safe (EIP-1271) + Risk Router (EIP-712)">
+            <div className="text-xs text-gray-400">Coming online next. Contracts already deployed.</div>
+          </Card>
         </div>
 
-        {/* ERC-8004 identity card */}
-        <div className="bg-gray-900 rounded-xl p-6 border border-gray-800 mb-8">
-          <h2 className="text-lg font-semibold mb-4 text-purple-400">🪪 Agent Identity (ERC-8004)</h2>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
-            {[
-              { label: "Agent Name", value: "clenjex" },
-              { label: "NFT ID", value: "—" },
-              { label: "Chain", value: "Base Sepolia" },
-              { label: "Validation Status", value: "Pending" },
-            ].map((item) => (
-              <div key={item.label}>
-                <p className="text-gray-500 text-xs">{item.label}</p>
-                <p className="text-gray-200 font-medium mt-1">{item.value}</p>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        {/* Trade log */}
-        <div className="bg-gray-900 rounded-xl p-6 border border-gray-800">
-          <h2 className="text-lg font-semibold mb-4">Trade Log</h2>
+        <Card title="Pairs" subtitle="Latest signal + health">
           <div className="overflow-x-auto">
-            <table className="w-full text-sm text-left">
-              <thead className="text-gray-500 text-xs uppercase border-b border-gray-800">
+            <table className="w-full text-sm">
+              <thead className="text-xs uppercase text-gray-500 border-b border-gray-800">
                 <tr>
-                  <th className="pb-3 pr-4">Time</th>
-                  <th className="pb-3 pr-4">Pair</th>
-                  <th className="pb-3 pr-4">Side</th>
-                  <th className="pb-3 pr-4">Amount</th>
-                  <th className="pb-3 pr-4">Price</th>
-                  <th className="pb-3 pr-4">Lane</th>
-                  <th className="pb-3 pr-4">PnL</th>
-                  <th className="pb-3">Status</th>
+                  <th className="py-3 pr-4 text-left">Pair</th>
+                  <th className="py-3 pr-4 text-left">Price</th>
+                  <th className="py-3 pr-4 text-left">Signal</th>
+                  <th className="py-3 pr-4 text-left">Confidence</th>
+                  <th className="py-3 pr-4 text-left">Last run</th>
+                  <th className="py-3 text-left">Error</th>
                 </tr>
               </thead>
               <tbody>
-                <tr>
-                  <td colSpan={8} className="text-gray-500 text-center py-8">
-                    No trades yet — agent is starting up...
-                  </td>
-                </tr>
+                {state.map((r) => (
+                  <tr key={r.pair} className="border-b border-gray-900">
+                    <td className="py-3 pr-4 font-medium">{r.pair}</td>
+                    <td className="py-3 pr-4">{r.price ? `$${Number(r.price).toFixed(2)}` : "—"}</td>
+                    <td className="py-3 pr-4">
+                      <span className="px-2 py-1 rounded bg-gray-900 border border-gray-800">
+                        {r.signal_side ?? "—"}
+                      </span>
+                    </td>
+                    <td className="py-3 pr-4">{r.signal_confidence ?? "—"}</td>
+                    <td className="py-3 pr-4">{r.last_run_at ? new Date(r.last_run_at).toLocaleTimeString() : "—"}</td>
+                    <td className="py-3 text-red-300">{r.last_error ? r.last_error.slice(0, 90) : ""}</td>
+                  </tr>
+                ))}
               </tbody>
             </table>
           </div>
-        </div>
+        </Card>
 
+        <div className="h-6" />
+
+        <Card title="Trade log" subtitle="Only executed trades (paper/live)">
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="text-xs uppercase text-gray-500 border-b border-gray-800">
+                <tr>
+                  <th className="py-3 pr-4 text-left">Time</th>
+                  <th className="py-3 pr-4 text-left">Pair</th>
+                  <th className="py-3 pr-4 text-left">Side</th>
+                  <th className="py-3 pr-4 text-left">Amount</th>
+                  <th className="py-3 pr-4 text-left">Price</th>
+                  <th className="py-3 pr-4 text-left">Lane</th>
+                  <th className="py-3 text-left">Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {trades.length === 0 ? (
+                  <tr>
+                    <td colSpan={7} className="py-8 text-center text-gray-500">
+                      No trades yet.
+                    </td>
+                  </tr>
+                ) : (
+                  trades.map((t) => (
+                    <tr key={t.id} className="border-b border-gray-900">
+                      <td className="py-3 pr-4 text-gray-400">
+                        {new Date(t.created_at).toLocaleString()}
+                      </td>
+                      <td className="py-3 pr-4 font-medium">{t.pair}</td>
+                      <td className="py-3 pr-4">{t.side}</td>
+                      <td className="py-3 pr-4">{t.amount ?? "—"}</td>
+                      <td className="py-3 pr-4">{t.price ? `$${Number(t.price).toFixed(2)}` : "—"}</td>
+                      <td className="py-3 pr-4">{t.lane}</td>
+                      <td className="py-3">{t.status}</td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        </Card>
       </div>
     </main>
+  );
+}
+
+function Card({ title, subtitle, children }: { title: string; subtitle?: string; children: React.ReactNode }) {
+  return (
+    <div className="bg-gray-900 rounded-xl p-6 border border-gray-800">
+      <div className="mb-4">
+        <h2 className="text-lg font-semibold">{title}</h2>
+        {subtitle ? <p className="text-gray-400 text-sm mt-1">{subtitle}</p> : null}
+      </div>
+      {children}
+    </div>
+  );
+}
+
+function Stat({ label, value, sub }: { label: string; value: string; sub: string }) {
+  return (
+    <div className="bg-gray-900 rounded-xl p-4 border border-gray-800">
+      <p className="text-gray-400 text-xs uppercase tracking-wide">{label}</p>
+      <p className="text-2xl font-bold mt-1 text-gray-100">{value}</p>
+      <p className="text-gray-500 text-xs mt-1">{sub}</p>
+    </div>
   );
 }
