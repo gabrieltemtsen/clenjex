@@ -13,7 +13,7 @@ import "../src/RiskRouter.sol";
 /// Required env vars: DEPLOYER_PRIVATE_KEY, BASE_SEPOLIA_RPC_URL, BASESCAN_API_KEY
 contract DeployScript is Script {
     function run() external {
-        uint256 deployerKey = vm.envUint("DEPLOYER_PRIVATE_KEY");
+        uint256 deployerKey = vm.envUint("DEPLOYER_PRIVATE_KEY_HEX");
         vm.startBroadcast(deployerKey);
 
         AgentIdentityRegistry identity = new AgentIdentityRegistry();
