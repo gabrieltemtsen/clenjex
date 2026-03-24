@@ -1,0 +1,11 @@
+{
+  "name": "@clenjex/dashboard",
+  "private": true,
+  "version": "0.0.1",
+  "scripts": {
+    "dev": "echo 'dashboard not scaffolded yet'",
+    "build": "echo 'dashboard not scaffolded yet'",
+    "typecheck": "echo 'dashboard not scaffolded yet'",
+    "lint": "echo 'dashboard not scaffolded yet'"
+  }
+}
