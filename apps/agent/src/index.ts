@@ -6,6 +6,13 @@
  *   Lane B (DeFi):   Same signal → EIP-712 TradeIntent → Safe (EIP-1271) → Risk Router
  */
 import { z } from "zod";
+import { config } from "dotenv";
+import { resolve } from "path";
+import { fileURLToPath } from "url";
+
+// Auto-load .env from apps/agent/.env (works locally; Railway uses real env vars)
+const __dirname = fileURLToPath(new URL(".", import.meta.url));
+config({ path: resolve(__dirname, "../.env") });
 import { createKrakenMCPClient } from "./mcp-client.js";
 import { computeSignal } from "./signals.js";
 import { getTradeDecision } from "./gemini.js";
