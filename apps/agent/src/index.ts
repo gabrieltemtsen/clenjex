@@ -18,6 +18,7 @@ import { computeSignal } from "./signals.js";
 import { getTradeDecision } from "./gemini.js";
 import type { RiskConfig } from "./types.js";
 import { DEFAULT_RISK_CONFIG } from "./types.js";
+import { submitTradeIntent, laneBConfigFromEnv, krakenToDisplayPair } from "./lane-b.js";
 
 const Env = z.object({
   KRAKEN_API_KEY: z.string().optional(),
@@ -153,13 +154,36 @@ async function runCycle(
         }
       }
 
-      // 7. Lane B: ERC-8004 DeFi — build + sign TradeIntent
-      if (env.SAFE_ADDRESS && env.RISK_ROUTER_ADDRESS && env.DEPLOYER_PRIVATE_KEY) {
-        console.log(`[agent] Lane B (DeFi/ERC-8004): building EIP-712 TradeIntent...`);
-        // TODO: wire viem + Safe signing → Risk Router submitIntent()
-        console.log(`[agent] Lane B: TradeIntent submission pending viem integration`);
+      // 7. Lane B: EIP-712 TradeIntent → RiskRouter on Base Sepolia
+      const laneBCfg = laneBConfigFromEnv(env);
+      if (laneBCfg) {
+        try {
+          console.log(`[agent] Lane B (on-chain): submitting EIP-712 TradeIntent for ${pair}...`);
+          const result = await submitTradeIntent(laneBCfg, {
+            pair,
+            side: action,
+            amount,
+          });
+          console.log(`[agent] Lane B ✅ intentHash=${result.intentHash} tx=${result.txHash}`);
+
+          if (deps.pool) {
+            await insertTrade(deps.pool, {
+              pair: krakenToDisplayPair(pair),
+              side: action,
+              amount,
+              price: latestPrice,
+              lane: "defi",
+              status: "confirmed",
+              intent_hash: result.intentHash,
+              tx_hash: result.txHash,
+            });
+          }
+        } catch (lbErr) {
+          const msg = lbErr instanceof Error ? lbErr.message : String(lbErr);
+          console.warn(`[agent] Lane B ⚠ skipped: ${msg}`);
+        }
       } else {
-        console.log(`[agent] Lane B: skipped (SAFE_ADDRESS or RISK_ROUTER_ADDRESS not set)`);
+        console.log(`[agent] Lane B: skipped (DEPLOYER_PRIVATE_KEY or RISK_ROUTER_ADDRESS not set)`);
       }
 
       console.log(`[agent] ✓ Cycle complete for ${pair}`);
