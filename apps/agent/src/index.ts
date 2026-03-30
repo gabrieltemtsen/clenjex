@@ -33,13 +33,22 @@ const Env = z.object({
   TRADE_INTERVAL_MS: z.string().default("300000"),
   LOG_LEVEL: z.string().default("info"),
   KRAKEN_BIN: z.string().default("kraken"),
+  KRAKEN_SERVICES: z.string().default("market,account,paper,trade"),
+  KRAKEN_ALLOW_DANGEROUS: z.string().default("false"),
 
   // DB
   DATABASE_URL: z.string().optional(),
+  DASHBOARD_BASE_URL: z.string().optional(),
+
+  // ERC-8004 registries (optional)
+  VALIDATION_REGISTRY_ADDRESS: z.string().optional(),
+  REPUTATION_REGISTRY_ADDRESS: z.string().optional(),
 
   // Tuning
   MIN_CONFIDENCE: z.string().optional(),
   POSITION_SIZE_USD: z.string().optional(),
+  MAX_SPREAD_BPS: z.string().optional(),
+  MAX_SLIPPAGE_BPS: z.string().optional(),
   CANDLE_INTERVAL_MINUTES: z.string().optional(),
 });
 
@@ -47,7 +56,8 @@ const Env = z.object({
 const PAIRS = ["XXBTZUSD", "XETHZUSD", "SOLUSD"];
 const DEFAULT_INTERVAL_MINUTES = 60;
 
-import { createPool, ensureSchema, insertDecision, insertTrade, upsertPairState } from "../../../packages/shared/src/db.js";
+import { createPool, ensureSchema, insertDecision, insertTrade, upsertPairState, insertArtifact } from "../../../packages/shared/src/db.js";
+import { erc8004ConfigFromEnv, submitValidationArtifact } from "./erc8004.js";
 
 async function runCycle(
   env: z.infer<typeof Env>,
@@ -63,7 +73,8 @@ async function runCycle(
   const kraken = await createKrakenMCPClient({
     apiKey: env.KRAKEN_API_KEY,
     apiSecret: env.KRAKEN_API_SECRET,
-    services: env.KRAKEN_API_KEY ? "market,account,paper" : "market",
+    services: env.KRAKEN_API_KEY ? env.KRAKEN_SERVICES : "market",
+    allowDangerous: env.KRAKEN_ALLOW_DANGEROUS === "true" || env.PAPER_TRADING !== "true",
   });
 
   const tools = await kraken.listTools();
@@ -77,6 +88,19 @@ async function runCycle(
       const candles = await kraken.getOHLCV(pair, intervalMinutes, 100);
       const latestPrice = candles[candles.length - 1].close;
       console.log(`[agent] ${pair} price: $${latestPrice.toFixed(2)} | candles: ${candles.length}`);
+
+      // 2b. Microstructure guardrails (spread)
+      const ob = await kraken.getOrderbook(pair, 1);
+      const bestBid = ob.bids[0]?.[0];
+      const bestAsk = ob.asks[0]?.[0];
+      if (!bestBid || !bestAsk) throw new Error(`No orderbook for ${pair}`);
+      const mid = (bestBid + bestAsk) / 2;
+      const spreadBps = ((bestAsk - bestBid) / mid) * 10_000;
+      console.log(`[agent] Spread: ${spreadBps.toFixed(1)} bps (bid=${bestBid}, ask=${bestAsk})`);
+      if (spreadBps > risk.maxSpreadBps) {
+        console.log(`[agent] Spread too wide (> ${risk.maxSpreadBps} bps) — skipping`);
+        continue;
+      }
 
       // 3. Compute technical signals
       const signal = computeSignal(candles, pair);
@@ -131,26 +155,84 @@ async function runCycle(
       }
 
       const isPaper = env.PAPER_TRADING === "true";
+      const side = action as "buy" | "sell";
       const positionUsd = Number(env.POSITION_SIZE_USD ?? risk.maxPositionSizeUsd);
       const amount = (positionUsd / latestPrice).toFixed(8);
 
-      // 6. Lane A: Kraken execution
-      console.log(`[agent] Lane A (Kraken ${isPaper ? "PAPER" : "LIVE"}): ${action} ${amount} ${pair} @ $${latestPrice}`);
+      // 6. Lane A: Kraken execution (paper or live)
+      const slippage = risk.maxSlippageBps / 10_000;
+      const limitPrice = side === "buy"
+        ? bestAsk * (1 + slippage)
+        : bestBid * (1 - slippage);
+
+      console.log(`[agent] Lane A (Kraken ${isPaper ? "PAPER" : "LIVE"}): ${side} ${amount} ${pair} @ limit $${limitPrice.toFixed(2)} (slip ${risk.maxSlippageBps}bps)`);
+
+      let krakenOrder: Record<string, unknown> | null = null;
       if (isPaper) {
-        const result = action === "buy"
+        krakenOrder = side === "buy"
           ? await kraken.paperBuy(pair, amount)
           : await kraken.paperSell(pair, amount);
-        console.log(`[agent] ✅ Paper trade executed:`, JSON.stringify(result).slice(0, 120));
+      } else {
+        // IOC limit order to avoid stale fills
+        krakenOrder = side === "buy"
+          ? await kraken.orderBuy(pair, amount, { type: "limit", price: limitPrice, timeinforce: "IOC" })
+          : await kraken.orderSell(pair, amount, { type: "limit", price: limitPrice, timeinforce: "IOC" });
+      }
 
-        if (deps.pool) {
-          await insertTrade(deps.pool, {
-            pair,
-            side: action,
-            amount,
-            price: latestPrice,
-            lane: "kraken",
-            status: "paper",
-          });
+      const orderText = JSON.stringify(krakenOrder);
+      console.log(`[agent] ✅ Kraken order:`, orderText.slice(0, 180));
+
+      const orderId = (
+        (krakenOrder as any)?.txid?.[0] ??
+        (krakenOrder as any)?.result?.txid?.[0] ??
+        (krakenOrder as any)?.order_id ??
+        null
+      ) as string | null;
+
+      let tradeRowId: number | null = null;
+      if (deps.pool) {
+        const r = await insertTrade(deps.pool, {
+          pair,
+          side,
+          amount,
+          price: latestPrice,
+          lane: "kraken",
+          status: isPaper ? "paper" : "live",
+          order_id: orderId ?? undefined,
+        });
+        tradeRowId = r.id;
+
+        // ERC-8004 validation artifact (dashboard-served JSON)
+        const artifact = {
+          ts: new Date().toISOString(),
+          pair,
+          lane: "kraken",
+          action,
+          amount,
+          latestPrice,
+          limitPrice,
+          spreadBps,
+          signal,
+          gemini: env.GEMINI_API_KEY ? { used: true, reasoning } : { used: false },
+          krakenOrder,
+        };
+
+        const a = await insertArtifact(deps.pool, {
+          kind: "trade_intent",
+          pair,
+          lane: "kraken",
+          trade_id: tradeRowId,
+          payload: artifact,
+        });
+
+        if (env.DASHBOARD_BASE_URL) {
+          const evidenceURI = `${env.DASHBOARD_BASE_URL.replace(/\/$/, "")}/api/artifacts/${a.id}`;
+          const ercCfg = erc8004ConfigFromEnv(env);
+          if (ercCfg) {
+            await submitValidationArtifact(ercCfg, evidenceURI, artifact).catch((e) => {
+              console.warn(`[agent] ERC-8004 validation skipped: ${e instanceof Error ? e.message : String(e)}`);
+            });
+          }
         }
       }
 
@@ -161,15 +243,15 @@ async function runCycle(
           console.log(`[agent] Lane B (on-chain): submitting EIP-712 TradeIntent for ${pair}...`);
           const result = await submitTradeIntent(laneBCfg, {
             pair,
-            side: action,
+            side,
             amount,
           });
           console.log(`[agent] Lane B ✅ intentHash=${result.intentHash} tx=${result.txHash}`);
 
           if (deps.pool) {
-            await insertTrade(deps.pool, {
+            const tr = await insertTrade(deps.pool, {
               pair: krakenToDisplayPair(pair),
-              side: action,
+              side,
               amount,
               price: latestPrice,
               lane: "defi",
@@ -177,6 +259,37 @@ async function runCycle(
               intent_hash: result.intentHash,
               tx_hash: result.txHash,
             });
+
+            const artifact = {
+              ts: new Date().toISOString(),
+              pair: krakenToDisplayPair(pair),
+              lane: "defi",
+              action,
+              amount,
+              latestPrice,
+              intentHash: result.intentHash,
+              txHash: result.txHash,
+              signal,
+              gemini: env.GEMINI_API_KEY ? { used: true, reasoning } : { used: false },
+            };
+
+            const a = await insertArtifact(deps.pool, {
+              kind: "eip712_intent",
+              pair: krakenToDisplayPair(pair),
+              lane: "defi",
+              trade_id: tr.id,
+              payload: artifact,
+            });
+
+            if (env.DASHBOARD_BASE_URL) {
+              const evidenceURI = `${env.DASHBOARD_BASE_URL.replace(/\/$/, "")}/api/artifacts/${a.id}`;
+              const ercCfg = erc8004ConfigFromEnv(env);
+              if (ercCfg) {
+                await submitValidationArtifact(ercCfg, evidenceURI, artifact).catch((e) => {
+                  console.warn(`[agent] ERC-8004 validation skipped: ${e instanceof Error ? e.message : String(e)}`);
+                });
+              }
+            }
           }
         } catch (lbErr) {
           const msg = lbErr instanceof Error ? lbErr.message : String(lbErr);
@@ -208,6 +321,8 @@ async function main() {
   const risk: RiskConfig = DEFAULT_RISK_CONFIG;
   risk.pairs = PAIRS;
   if (env.MIN_CONFIDENCE) risk.minConfidence = Number(env.MIN_CONFIDENCE);
+  if (env.MAX_SPREAD_BPS) risk.maxSpreadBps = Number(env.MAX_SPREAD_BPS);
+  if (env.MAX_SLIPPAGE_BPS) risk.maxSlippageBps = Number(env.MAX_SLIPPAGE_BPS);
 
   const pool = env.DATABASE_URL ? createPool(env.DATABASE_URL) : undefined;
   if (pool) {

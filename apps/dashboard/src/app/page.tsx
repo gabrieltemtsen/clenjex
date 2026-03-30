@@ -23,6 +23,7 @@ type TradeRow = {
   price: string | null;
   lane: string;
   status: string;
+  order_id: string | null;
   pnl: string | null;
   pnl_percent: string | null;
   intent_hash: string | null;

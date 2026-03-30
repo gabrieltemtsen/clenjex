@@ -13,9 +13,7 @@ import {
   http,
   type Address,
   type Hex,
-  parseEther,
   hashTypedData,
-  encodeFunctionData,
 } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { baseSepolia } from "viem/chains";
@@ -183,7 +181,15 @@ export async function submitTradeIntent(
     message: intent,
   });
 
-  // 5. Submit to RiskRouter
+  // 5. Compute intent hash (stable, independent of log parsing)
+  const intentHash = hashTypedData({
+    domain,
+    types: TRADE_INTENT_TYPES,
+    primaryType: "TradeIntent",
+    message: intent,
+  });
+
+  // 6. Submit to RiskRouter
   const txHash = await walletClient.writeContract({
     address: cfg.riskRouterAddress,
     abi: RISK_ROUTER_ABI,
@@ -191,7 +197,7 @@ export async function submitTradeIntent(
     args: [intent, signature],
   });
 
-  // 6. Wait for confirmation
+  // 7. Wait for confirmation
   const receipt = await publicClient.waitForTransactionReceipt({
     hash: txHash,
     timeout: 60_000,
@@ -200,10 +206,6 @@ export async function submitTradeIntent(
   if (receipt.status !== "success") {
     throw new Error(`Lane B tx reverted: ${txHash}`);
   }
-
-  // 7. Extract intentHash from logs (first topic of TradeIntentSubmitted)
-  const log = receipt.logs[0];
-  const intentHash = (log?.topics?.[3] ?? "0x") as Hex;
 
   console.log(`[lane-b] ✅ Intent submitted | tx: ${txHash} | hash: ${intentHash}`);
 
