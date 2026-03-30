@@ -56,6 +56,8 @@ export interface RiskConfig {
   stopLossPct: number;         // e.g. 5 = 5% stop loss per position
   takeProfitPct: number;       // e.g. 10 = 10% take profit
   minConfidence: number;       // e.g. 65 = only trade if signal confidence >= 65
+  maxSpreadBps: number;        // skip if spread too wide (e.g. 25 = 0.25%)
+  maxSlippageBps: number;      // limit price padding (e.g. 50 = 0.50%)
   pairs: string[];             // tradeable pairs
 }
 
@@ -65,5 +67,7 @@ export const DEFAULT_RISK_CONFIG: RiskConfig = {
   stopLossPct: 5,
   takeProfitPct: 10,
   minConfidence: 65,
+  maxSpreadBps: 25,
+  maxSlippageBps: 50,
   pairs: ["XBTUSD", "XETHUSD", "SOLUSD"],
 };

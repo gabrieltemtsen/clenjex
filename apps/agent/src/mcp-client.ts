@@ -12,8 +12,15 @@ export interface KrakenMCPClient {
   getTicker(pair: string): Promise<Record<string, unknown>>;
   getOHLCV(pair: string, intervalMinutes: number, count?: number): Promise<OHLCV[]>;
   getOrderbook(pair: string, depth?: number): Promise<{ bids: [number, number][]; asks: [number, number][] }>;
+
+  // Paper
   paperBuy(pair: string, volume: string, price?: number): Promise<Record<string, unknown>>;
   paperSell(pair: string, volume: string, price?: number): Promise<Record<string, unknown>>;
+
+  // Live (requires trade service)
+  orderBuy(pair: string, volume: string, params?: { type?: string; price?: number; timeinforce?: string; validate?: boolean; userref?: number }): Promise<Record<string, unknown>>;
+  orderSell(pair: string, volume: string, params?: { type?: string; price?: number; timeinforce?: string; validate?: boolean; userref?: number }): Promise<Record<string, unknown>>;
+
   close(): Promise<void>;
 }
 
@@ -23,8 +30,10 @@ export async function createKrakenMCPClient(opts: {
   apiKey?: string;
   apiSecret?: string;
   services?: string;
+  allowDangerous?: boolean;
 }): Promise<KrakenMCPClient> {
-  const args = ["mcp", "--services", opts.services ?? "market,account,paper"];
+  const args = ["mcp", "--services", opts.services ?? "market,account,paper"]; 
+  if (opts.allowDangerous) args.push("--allow-dangerous");
   if (opts.apiKey) args.push("--api-key", opts.apiKey);
 
   const transport = new StdioClientTransport({
@@ -115,6 +124,30 @@ export async function createKrakenMCPClient(opts: {
       const args: Record<string, unknown> = { pair, volume, type: price ? "limit" : "market" };
       if (price) args.price = price.toString();
       const result = await client.callTool({ name: "kraken_paper_sell", arguments: args });
+      const text = (result.content as Array<{ text: string }>)[0]?.text ?? "{}";
+      return JSON.parse(text);
+    },
+
+    async orderBuy(pair: string, volume: string, params?: { type?: string; price?: number; timeinforce?: string; validate?: boolean; userref?: number }) {
+      const args: Record<string, unknown> = { pair, volume };
+      if (params?.type) args.type = params.type;
+      if (params?.price !== undefined) args.price = params.price.toString();
+      if (params?.timeinforce) args.timeinforce = params.timeinforce;
+      if (params?.validate !== undefined) args.validate = params.validate;
+      if (params?.userref !== undefined) args.userref = params.userref;
+      const result = await client.callTool({ name: "kraken_order_buy", arguments: args });
+      const text = (result.content as Array<{ text: string }>)[0]?.text ?? "{}";
+      return JSON.parse(text);
+    },
+
+    async orderSell(pair: string, volume: string, params?: { type?: string; price?: number; timeinforce?: string; validate?: boolean; userref?: number }) {
+      const args: Record<string, unknown> = { pair, volume };
+      if (params?.type) args.type = params.type;
+      if (params?.price !== undefined) args.price = params.price.toString();
+      if (params?.timeinforce) args.timeinforce = params.timeinforce;
+      if (params?.validate !== undefined) args.validate = params.validate;
+      if (params?.userref !== undefined) args.userref = params.userref;
+      const result = await client.callTool({ name: "kraken_order_sell", arguments: args });
       const text = (result.content as Array<{ text: string }>)[0]?.text ?? "{}";
       return JSON.parse(text);
     },

@@ -41,6 +41,7 @@ export async function ensureSchema(pool: pg.Pool) {
       price numeric,
       lane text not null,
       status text not null,
+      order_id text,
       intent_hash text,
       tx_hash text,
       pnl numeric,
@@ -48,8 +49,22 @@ export async function ensureSchema(pool: pg.Pool) {
       created_at timestamptz not null default now()
     );
 
+    -- Backfill/upgrade for existing DBs
+    alter table trades add column if not exists order_id text;
+
+    create table if not exists artifacts (
+      id bigserial primary key,
+      kind text not null,
+      pair text,
+      lane text,
+      trade_id bigint,
+      payload jsonb not null,
+      created_at timestamptz not null default now()
+    );
+
     create index if not exists idx_trades_created_at on trades(created_at desc);
     create index if not exists idx_decisions_created_at on decisions(created_at desc);
+    create index if not exists idx_artifacts_created_at on artifacts(created_at desc);
   `);
 }
 
@@ -136,13 +151,15 @@ export async function insertTrade(pool: pg.Pool, t: {
   price?: string | number;
   lane: string;
   status: string;
+  order_id?: string;
   intent_hash?: string;
   tx_hash?: string;
-}) {
-  await pool.query(
+}): Promise<{ id: number }> {
+  const { rows } = await pool.query(
     `
-    insert into trades (pair, side, amount, price, lane, status, intent_hash, tx_hash)
-    values ($1,$2,$3,$4,$5,$6,$7,$8)
+    insert into trades (pair, side, amount, price, lane, status, order_id, intent_hash, tx_hash)
+    values ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+    returning id
     `,
     [
       t.pair,
@@ -151,8 +168,28 @@ export async function insertTrade(pool: pg.Pool, t: {
       t.price ?? null,
       t.lane,
       t.status,
+      t.order_id ?? null,
       t.intent_hash ?? null,
       t.tx_hash ?? null,
     ]
   );
+  return { id: Number(rows[0].id) };
+}
+
+export async function insertArtifact(pool: pg.Pool, a: {
+  kind: string;
+  pair?: string;
+  lane?: string;
+  trade_id?: number;
+  payload: unknown;
+}): Promise<{ id: number }> {
+  const { rows } = await pool.query(
+    `
+    insert into artifacts (kind, pair, lane, trade_id, payload)
+    values ($1,$2,$3,$4,$5)
+    returning id
+    `,
+    [a.kind, a.pair ?? null, a.lane ?? null, a.trade_id ?? null, a.payload]
+  );
+  return { id: Number(rows[0].id) };
 }
